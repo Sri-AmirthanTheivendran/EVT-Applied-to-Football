@@ -1,0 +1,117 @@
+---
+title: "Using Block Maxima and P.O.T. to model Slowest NFL Combine Athletes"
+author: 'Sri-Amirthan Theivendran'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r dataImport, include=FALSE, fig.width= 8, fig.height=4, fig.align='center'}
+nfl <- read.csv("~/EVT/NFLCombineStats1999-2015.csv", na.strings="", stringsAsFactors = FALSE) #read in data
+colnames(nfl)
+summary(as.factor(nfl$position))
+table(as.factor(nfl$position), as.factor(nfl$year))
+nfl[, 'year'] <- as.factor(nfl[, 'year']) #make year a factor
+good<-nfl[, "fortyyd"]>0 #those indices with positive 40 yd running time
+nflclean<- nfl[good, ]
+nfldata <- nflclean[, c("name", "year", "fortyyd")]#primary two data sets of interest
+nflrundata <- nfldata[, "fortyyd"]
+#checking for stationarity
+acf(nflrundata)
+plot(as.ts(nflrundata))
+Box.test(nflrundata)
+#don't have enough data to do block maxima approach for WR only for example.
+```
+Every year roughly $300$ NFL draft prospects attend the NFL combine and perform a myriad of physical challenges that test their strength and endurance. These tests are a means for teams to gage at a glance how ready a player is for the NFL. One of these tests is the forty yard dash. My aim is to see just how slow a player can be and still be in contention for the NFL draft.
+
+To this end, I obtained yearly data for nfl combine stats from 1999-2015. Every year there are roughly 300 observations of $40$ yard dash times. A snap shot of the data as well as a plot of the $40$ yard dash times are given below.
+```{r, fig.align='center', fig.width= 8, fig.height=5, echo=TRUE}
+head(nfldata)
+plot(nflrundata, ylab="40 Yard Dash Time", main="40 Yard NFL Dash Times from 1999-2015")
+summary(nflrundata)
+length(nflrundata)
+```
+We first analyze te data using the block maxima approach. 
+
+#### Block Maxima
+
+We first discuss assumptions of the model. The individual running times are quite independent of each other (each individual races alone) and identically distributed (as these running times came from one cohort of professional athletes, who share similar physical attributes).
+
+We take our block size as one year, resulting in $17$ observations. Our block size is largely based on how the data is collected, which results in this natural block size. For fitting GEV data to these block maxima, the yearly maximum are independent of each other for the reason stated before and it is reasonable to think that they are approximately GEV distributed as we are taking the maximum of $300$ or so observations. A snaphshot as well as a plot of the data corresponding to the yearly maxima are given below.
+
+```{r, fig.align='center', fig.width= 8, fig.height=5, echo=FALSE}
+nflmax <- aggregate(nfldata$fortyyd, by = list(nfldata$year), max)
+names(nflmax)[names(nflmax) == 'Group.1'] <- 'Year'
+names(nflmax)[names(nflmax) == 'x'] <- 'Max'
+nflrunmaxdata <- nflmax$Max
+```
+
+```{r, fig.align='center', fig.width= 8, fig.height=4, echo=TRUE}
+head(nflmax)
+plot(nflrunmaxdata, ylab="40 Yard Dash Time", main="Yearly Maximum 40 Yard Dash Times from 1999-2015")
+length(nflrunmaxdata)
+```
+We fit a GEV model to the yearly maximum data.
+```{r, fig.align='center', fig.width= 8, fig.height=4, echo=TRUE, warning=FALSE}
+library(ismev)
+gfit<-gev.fit(nflrunmaxdata)
+```
+Approximate $95$ percent confidence intervals for the mle estimates are given below.
+```{r, fig.align='center', fig.width= 8, fig.height=4, echo=TRUE, warning=FALSE}
+LowerBounds <- gfit$mle - 1.96*gfit$se
+UpperBounds <- gfit$mle + 1.96*gfit$se
+LowerBounds
+UpperBounds
+```
+
+The estimated location parameter is $\hat{\mu}=5.7117$, the estimated scale parameter is $\hat{\sigma}=0.1375$ and the estimated shape parameter $\hat{\gamma}=-0.1632$. The estimated shape parameter is negative which implies that the distribution has an upper endpoint (although a 95 percent confidence interval for the parameter would include positive and negative values). The estimated upper endpoint would be
+```{r, fig.align='center', fig.width= 8, fig.height=4, echo=TRUE, warning=FALSE}
+gfit$mle[1]-(gfit$mle[2]/gfit$mle[3])
+```
+which based on the data is not too unrealistic. 
+
+Next we verify that the estimated GEV distribution fits the data well. Below among other plots, a QQ-plot and probability plot are given. The distribution seems to fit the data well even into the tails, even though, given our block size there weren't many observations.
+```{r, fig.align='center', fig.width= 8, fig.height=6, echo=TRUE, warning=FALSE}
+gev.diag(gfit)
+```
+Finally, we compute the return level with return period 1000 years. 
+```{r, fig.align='center', fig.width= 8, fig.height=6, echo=TRUE, warning=FALSE}
+library(evir)
+qgev(0.999, xi=gfit$mle[3], mu=gfit$mle[1], sigma=gfit$mle[2])
+```
+So on average we will see $1$ player every $1000$ years have a shot of making the NFL with a $40$ yd dash time that exceeds $6.28$ seconds at the combine. The estimate though will have an extremely large confidence interval because of the lack of observations due to a big block size. This phenomenon is illustrated in the return level plot given above.
+
+Now we analyze the same data using the peaks-over-threshold method.
+
+#### Peaks-Over-Thresholds
+We first determine a suitable threshold by means of a mean-excess plot. A sample mean excess plot is given below
+```{r, fig.align='center', fig.width= 8, fig.height=5, echo=TRUE, warning=FALSE}
+par(mfrow=c(1,1))
+meplot(nflrundata)
+```
+The mean-excess plot is rougly linear from a threshold of $4.7$ onwards. Hence after thresholding, we will still be using roughly $50$ percent of the data. We fit a GPD to the excesses for this thresholded data. 
+```{r, fig.align='center', fig.width= 8, fig.height=5, echo=TRUE, warning=FALSE}
+fit<-gpd.fit(nflrundata, 4.7, npy=300)
+```
+The estimated scale parameter is $\hat{\sigma}=0.4452$ while the estimated shape parameter $\hat{\gamma}=-0.3237$. Approximate $95$ percent confidence intervals for the mle estimates are given below. The peaks-over-threshhold method gives much tighter confidence intervals for the estimates because we are using a lot more data. The estimate for $\gamma$ is negative like in the block maxima case but the confidence interval is now entirely negative.
+```{r, fig.align='center', fig.width= 8, fig.height=5, echo=TRUE, warning=FALSE}
+lbounds<-fit$mle-1.96*fit$se
+ubounds<-fit$mle+1.96*fit$se
+lbounds
+ubounds
+```
+Because the estimate for $\hat{\gamma}$ is negative the distribution has an upper endpoint. The estimated upper endpoint can be computed  to be 
+```{r, fig.align='center', fig.width= 8, fig.height=5, echo=TRUE, warning=FALSE}
+4.7-fit$mle[1]/fit$mle[2]
+```
+As a comparison the block maxima gave an estimated upper endpoint of $6.55$ seconds and the maximum time recorded is $6.05$ seconds. Because of a larger amount of data, the peaks over threshold method gives an estimate that is nearer to the observed data. 
+
+Now we verify that the estimated GPD distribution fits the data well. Above a qq plot for the estimated pareto distribution among other diagnostic plots are given. The distribution seems to fit the data well even into the tails. The confidence intervals for the return levels are also a lot more narrow.
+
+![Diagonostic Plots for Estimated GPD distribution](qqplotgpd.png)
+
+Now we compute the return level with return period $1000$ years. The return level is estimated to be $6.06$ seconds (using the formula from the slides, with $T=1000\times 280$ and the estimators of the paramters given above). In comparison the block maxima gave a return level of $6.28$ seconds. The confidence interval associated with the estimate from the peaks over threshold method is much tighter as well.
